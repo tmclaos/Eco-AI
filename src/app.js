@@ -1,15 +1,35 @@
 const video = document.getElementById('cameraFeed');
 const scanBtn = document.getElementById('scanBtn');
-const resultArea = document.getElementById('resultArea');
-const topMatchEl = document.getElementById('topMatch');
+const statusText = document.getElementById('statusText');
+const spinner = document.getElementById('loadingSpinner');
+
+// View Containers
+const scannerView = document.getElementById('scannerView');
+const resultView = document.getElementById('resultView');
+
+// Result Elements
+const detectedClassEl = document.getElementById('detectedClass');
+const recyclableStatusEl = document.getElementById('recyclableStatus');
+const resetBtn = document.getElementById('resetBtn');
+
 const canvas = document.getElementById('processingCanvas');
 const ctx = canvas.getContext('2d', { willReadFrequently: true });
-const spinner = document.getElementById('loadingSpinner');
 
 let session;
 
-// Dummy labels for demonstration (YOLO models typically have 80 COCO classes)
-const LABELS = ["person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light"];
+// Recycling specific dummy labels with their recyclability status
+const LABELS = [
+  { name: "plastic bottle", recyclable: true },
+  { name: "cardboard box", recyclable: true },
+  { name: "soda can", recyclable: true },
+  { name: "glass jar", recyclable: true },
+  { name: "paper", recyclable: true },
+  { name: "styrofoam cup", recyclable: false },
+  { name: "plastic bag", recyclable: false },
+  { name: "apple core", recyclable: false },
+  { name: "candy wrapper", recyclable: false },
+  { name: "chip bag", recyclable: false }
+];
 
 /**
  * Initializes the camera
@@ -17,7 +37,7 @@ const LABELS = ["person", "bicycle", "car", "motorcycle", "airplane", "bus", "tr
 async function setupCamera() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "environment" } // Prefer back camera on mobile
+      video: { facingMode: "environment" }
     });
     video.srcObject = stream;
 
@@ -37,64 +57,47 @@ async function setupCamera() {
  */
 async function loadModel() {
   try {
-    console.log("Loading model...");
-    // We would use '/public/model/yolo26n.onnx' but it's an empty placeholder,
-    // so creating a session with it will fail.
-    // In a real scenario, we load it like this:
-    // session = await ort.InferenceSession.create('/public/model/yolo26n.onnx');
+    statusText.textContent = "Loading Model...";
 
-    // Simulating model load for the placeholder scenario
+    // Simulate model load for placeholder scenario
     await new Promise(resolve => setTimeout(resolve, 1000));
     console.log("Model 'loaded' successfully!");
 
-    // Enable the scan button
-    scanBtn.textContent = "Scan Now";
     scanBtn.disabled = false;
+    statusText.textContent = "Ready to scan";
   } catch (error) {
     console.error("Failed to load the model:", error);
-    scanBtn.textContent = "Error loading model";
+    statusText.textContent = "Error loading model";
   }
 }
 
 /**
  * Captures a frame from the video, resizes to 640x640, and normalizes it.
- * Returns a Float32 tensor for ONNX Runtime.
  */
 function preprocessImage() {
-  // Draw the current video frame onto the 640x640 canvas
-  // This resizes and crops the center if necessary depending on aspect ratio
-
-  // For simplicity, we're drawing the whole video frame into 640x640
   const size = Math.min(video.videoWidth, video.videoHeight);
   const startX = (video.videoWidth - size) / 2;
   const startY = (video.videoHeight - size) / 2;
 
   ctx.drawImage(
     video,
-    startX, startY, size, size, // Source rectangle (center square)
-    0, 0, 640, 640              // Destination rectangle (canvas)
+    startX, startY, size, size,
+    0, 0, 640, 640
   );
 
-  // Get image data
   const imageData = ctx.getImageData(0, 0, 640, 640).data;
-
-  // YOLO typically expects Float32 normalized [0, 1] in NCHW format
-  // N=1, C=3 (RGB), H=640, W=640
   const float32Data = new Float32Array(1 * 3 * 640 * 640);
 
   for (let i = 0; i < 640 * 640; i++) {
-    // Canvas imageData is RGBA (4 channels)
     const r = imageData[i * 4] / 255.0;
     const g = imageData[i * 4 + 1] / 255.0;
     const b = imageData[i * 4 + 2] / 255.0;
 
-    // NCHW format (C=0 for R, C=1 for G, C=2 for B)
-    float32Data[i] = r;                           // R channel
-    float32Data[640 * 640 + i] = g;               // G channel
-    float32Data[2 * 640 * 640 + i] = b;           // B channel
+    float32Data[i] = r;
+    float32Data[640 * 640 + i] = g;
+    float32Data[2 * 640 * 640 + i] = b;
   }
 
-  // Return ORT Tensor
   return new ort.Tensor('float32', float32Data, [1, 3, 640, 640]);
 }
 
@@ -107,27 +110,30 @@ async function runInference() {
   try {
     scanBtn.disabled = true;
     spinner.style.display = 'block';
-    resultArea.style.display = 'none';
 
     // 1. Pre-process the image
     const tensor = preprocessImage();
 
-    // 2. Run model
-    // In a real scenario:
-    // const feeds = { images: tensor }; // 'images' depends on model input name
-    // const results = await session.run(feeds);
-    // const output = results[session.outputNames[0]].data;
-
-    // Simulating inference time and NMS-free output for the placeholder
+    // 2. Run model (Simulated)
     await new Promise(resolve => setTimeout(resolve, 800));
 
-    // Simulated random detection
     const randomClassId = Math.floor(Math.random() * LABELS.length);
-    const topClass = LABELS[randomClassId];
+    const result = LABELS[randomClassId];
 
     // 3. Display Results
-    topMatchEl.textContent = topClass.toUpperCase();
-    resultArea.style.display = 'block';
+    detectedClassEl.textContent = result.name;
+
+    if (result.recyclable) {
+      recyclableStatusEl.textContent = "IS RECYCLABLE";
+      recyclableStatusEl.className = "recyclable-status status-yes";
+    } else {
+      recyclableStatusEl.textContent = "IS NOT RECYCLABLE";
+      recyclableStatusEl.className = "recyclable-status status-no";
+    }
+
+    // Transition Views
+    scannerView.style.display = 'none';
+    resultView.style.display = 'flex';
 
   } catch (error) {
     console.error("Inference error:", error);
@@ -138,9 +144,16 @@ async function runInference() {
   }
 }
 
+/**
+ * Resets the app back to the scanner view
+ */
+function resetScanner() {
+  resultView.style.display = 'none';
+  scannerView.style.display = 'flex';
+}
+
 // Main initialization
 async function init() {
-  // Set up ORT web config for WASM multi-threading
   ort.env.wasm.numThreads = Math.min(4, navigator.hardwareConcurrency || 4);
   ort.env.wasm.simd = true;
 
@@ -148,6 +161,7 @@ async function init() {
   await loadModel();
 
   scanBtn.addEventListener('click', runInference);
+  resetBtn.addEventListener('click', resetScanner);
 }
 
 // Start app
