@@ -309,7 +309,7 @@
         ort.env.wasm.numThreads = Math.min(4, navigator.hardwareConcurrency || 2);
         
         // Create session loading the model from the specified path
-        session = await ort.InferenceSession.create('public/model/best.onnx', { 
+        session = await ort.InferenceSession.create('best.onnx', { 
             executionProviders: ['wasm'] 
         });
 
