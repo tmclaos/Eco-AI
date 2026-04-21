@@ -60,11 +60,11 @@ async function loadModel() {
 
     try {
       // Attempt to load the real model
-      session = await ort.InferenceSession.create('/public/model/yolo26n.onnx');
+      session = await ort.InferenceSession.create('/public/model/best.onnx');
       console.log("Model loaded successfully!");
     } catch (e) {
       // If the file is empty or missing (placeholder), log a warning but allow UI testing
-      console.warn("Could not load real model. Using mock inference mode. Replace /public/model/yolo26n.onnx with a valid model.", e);
+      console.warn("Could not load real model. Using mock inference mode. Replace /public/model/best.onnx with a valid model.", e);
       session = null;
     }
 
