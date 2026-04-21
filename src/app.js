@@ -1,130 +1,117 @@
-const video = document.getElementById('cameraFeed');
+const video = document.getElementById('webcam');
 const scanBtn = document.getElementById('scanBtn');
-const statusText = document.getElementById('statusText');
-const spinner = document.getElementById('loadingSpinner');
-const scannerView = document.getElementById('scannerView');
+const info = document.getElementById('info');
+const loader = document.getElementById('loader');
 const resultView = document.getElementById('resultView');
-const detectedClassEl = document.getElementById('detectedClass');
-const recyclableStatusEl = document.getElementById('recyclableStatus');
-const resetBtn = document.getElementById('resetBtn');
-
-const canvas = document.getElementById('processingCanvas');
-const ctx = canvas.getContext('2d', { willReadFrequently: true });
+const scannerView = document.getElementById('scannerView');
+const display = document.getElementById('display');
+const ctx = document.getElementById('canvas').getContext('2d');
 
 let session;
+// --- STEP 1: DEFINE YOUR 6 CLASSES ---
+const CLASSES = ["plastic bottle", "cardboard box", "soda can", "glass jar", "paper", "metal lid"];
 
-// 1. Updated to exactly 6 recyclable classes
-const RECYCLABLE_CLASSES = [
-  "plastic bottle", 
-  "cardboard box", 
-  "soda can", 
-  "glass jar", 
-  "paper", 
-  "metal lid"
-];
-
-async function setupCamera() {
+async function startApp() {
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "environment" }
+    // Setup Camera
+    const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: "environment", width: 640, height: 640 } 
     });
     video.srcObject = stream;
-    return new Promise((resolve) => { video.onloadedmetadata = () => resolve(video); });
-  } catch (error) {
-    alert("Please allow camera permissions.");
-  }
-}
 
-async function loadModel() {
-  try {
-    statusText.textContent = "Loading Model...";
-    // IMPORTANT: Replace 'model.onnx' with your actual model file path
-    session = await ort.InferenceSession.create('./model.onnx'); 
-    scanBtn.disabled = false;
-    statusText.textContent = "Ready to scan";
-  } catch (error) {
-    statusText.textContent = "Error loading model";
-    // For now, let's enable the button for testing even if model fails
-    scanBtn.disabled = false; 
-  }
-}
-
-function preprocessImage() {
-  const size = 640;
-  ctx.drawImage(video, 0, 0, size, size);
-  const imageData = ctx.getImageData(0, 0, size, size).data;
-  const float32Data = new Float32Array(1 * 3 * size * size);
-
-  for (let i = 0; i < size * size; i++) {
-    float32Data[i] = imageData[i * 4] / 255.0; // R
-    float32Data[size * size + i] = imageData[i * 4 + 1] / 255.0; // G
-    float32Data[2 * size * size + i] = imageData[i * 4 + 2] / 255.0; // B
-  }
-  return new ort.Tensor('float32', float32Data, [1, 3, size, size]);
-}
-
-async function runInference() {
-  if (scanBtn.disabled) return;
-
-  try {
-    scanBtn.disabled = true;
-    spinner.style.display = 'block';
-
-    const tensor = preprocessImage();
+    // --- STEP 2: LOAD THE MODEL ---
+    // We use the path you provided from the root
+    session = await ort.InferenceSession.create('public/model/best.onnx', { 
+        executionProviders: ['wasm'] 
+    });
     
-    // --- ACTUAL INFERENCE LOGIC ---
-    let highestConfidence = 0;
-    let detectedLabel = "";
-
-    if (session) {
-        const feeds = { images: tensor }; // 'images' depends on your YOLO export name
-        const results = await session.run(feeds);
-        // This part varies based on your YOLO version (v8, v11, etc.)
-        // We will assume you extract the best score and class ID here:
-        // highestConfidence = results.output[...]; 
-        // detectedLabel = RECYCLABLE_CLASSES[results.class_id];
-    } else {
-        // MOCK LOGIC FOR TESTING (Simulating a 75% find)
-        highestConfidence = 0.75; 
-        detectedLabel = RECYCLABLE_CLASSES[0]; 
-    }
-
-    // 2. The Logic Check: Over 70% and in our list
-    const isOverThreshold = highestConfidence >= 0.70;
-    const isRecognized = RECYCLABLE_CLASSES.includes(detectedLabel);
-
-    if (isOverThreshold && isRecognized) {
-      detectedClassEl.textContent = detectedLabel;
-      recyclableStatusEl.textContent = "RECYCLABLE";
-      recyclableStatusEl.className = "recyclable-status status-yes";
-    } else {
-      // 3. The Fallback Message
-      detectedClassEl.textContent = "Unknown Object";
-      recyclableStatusEl.innerHTML = `<small style="font-size: 14px;">We could not match this to our database, we believe that this is not recyclable.</small>`;
-      recyclableStatusEl.className = "recyclable-status status-no";
-    }
-
-    scannerView.style.display = 'none';
-    resultView.style.display = 'flex';
-
-  } catch (error) {
-    console.error(error);
-  } finally {
+    loader.style.display = 'none';
     scanBtn.disabled = false;
-    spinner.style.display = 'none';
+    info.textContent = "Ready to identify items";
+  } catch (err) {
+    info.textContent = "Error: Check model path or camera";
+    console.error(err);
   }
 }
 
-function resetScanner() {
+scanBtn.onclick = async () => {
+  info.textContent = "Analyzing object...";
+  scanBtn.disabled = true;
+
+  // Prepare Image
+  ctx.drawImage(video, 0, 0, 640, 640);
+  const data = ctx.getImageData(0, 0, 640, 640).data;
+  
+  const r = [], g = [], b = [];
+  for (let i = 0; i < data.length; i += 4) {
+    r.push(data[i] / 255.0);
+    g.push(data[i+1] / 255.0);
+    b.push(data[i+2] / 255.0);
+  }
+  
+  const input = new ort.Tensor('float32', new Float32Array([...r, ...g, ...b]), [1, 3, 640, 640]);
+
+  try {
+    // Run AI Inference
+    const inputName = session.inputNames[0];
+    const results = await session.run({ [inputName]: input });
+    const output = results[session.outputNames[0]].data; 
+
+    let maxScore = 0;
+    let classIdx = -1;
+
+    // Post-process YOLOv8 output (checking 8400 boxes)
+    for (let i = 0; i < 8400; i++) {
+      for (let j = 0; j < CLASSES.length; j++) {
+        const score = output[(j + 4) * 8400 + i];
+        if (score > maxScore) {
+          maxScore = score;
+          classIdx = j;
+        }
+      }
+    }
+
+    showResult(classIdx, maxScore);
+  } catch (e) {
+    console.error(e);
+    info.textContent = "Something went wrong.";
+    scanBtn.disabled = false;
+  }
+};
+
+function showResult(id, score) {
+  scannerView.style.display = 'none';
+  resultView.style.display = 'block';
+  
+  // --- STEP 3: THE 70% THRESHOLD CHECK ---
+  if (score >= 0.70 && id !== -1) {
+    display.innerHTML = `
+      <p style="margin-bottom:0; color:#8a9bb2;">Detected Item:</p>
+      <h2 style="color:var(--primary); text-transform:uppercase; margin-top:5px;">${CLASSES[id]}</h2>
+      <p style="margin-top:20px;">This item is officially</p>
+      <div class="status-yes">RECYCLABLE</div>
+      <div style="background:rgba(255,255,255,0.05); padding:10px; border-radius:8px; font-size:0.8em; margin-top:20px;">
+         AI Certainty: ${(score * 100).toFixed(1)}%
+      </div>
+    `;
+  } else {
+    // --- STEP 4: THE FALLBACK MESSAGE ---
+    display.innerHTML = `
+      <div class="status-no">
+        <div style="font-size: 3em; margin-bottom: 15px;">🔍</div>
+        We could not match this to our database, <br>
+        we believe that this is not recyclable.
+      </div>
+    `;
+  }
+  info.textContent = "Result Found";
+}
+
+function restart() {
   resultView.style.display = 'none';
-  scannerView.style.display = 'flex';
+  scannerView.style.display = 'block';
+  scanBtn.disabled = false;
+  info.textContent = "Ready to scan";
 }
 
-async function init() {
-  await setupCamera();
-  await loadModel();
-  scanBtn.addEventListener('click', runInference);
-  resetBtn.addEventListener('click', resetScanner);
-}
-
-window.addEventListener('DOMContentLoaded', init);
+window.onload = startApp;
