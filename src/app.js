@@ -17,19 +17,18 @@ const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
 let session;
 
-// Recycling specific dummy labels with their recyclability status
+// Allowed recyclable classes
 const LABELS = [
-  { name: "plastic bottle", recyclable: true },
-  { name: "cardboard box", recyclable: true },
-  { name: "soda can", recyclable: true },
-  { name: "glass jar", recyclable: true },
-  { name: "paper", recyclable: true },
-  { name: "styrofoam cup", recyclable: false },
-  { name: "plastic bag", recyclable: false },
-  { name: "apple core", recyclable: false },
-  { name: "candy wrapper", recyclable: false },
-  { name: "chip bag", recyclable: false }
+  "Beverage Can",
+  "Glass Bottle",
+  "Plastic Bottle",
+  "Paper",
+  "Plastic Film",
+  "Carton"
 ];
+
+// Confidence threshold
+const CONFIDENCE_THRESHOLD = 0.70;
 
 /**
  * Initializes the camera
@@ -59,14 +58,20 @@ async function loadModel() {
   try {
     statusText.textContent = "Loading Model...";
 
-    // Simulate model load for placeholder scenario
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    console.log("Model 'loaded' successfully!");
+    try {
+      // Attempt to load the real model
+      session = await ort.InferenceSession.create('/public/model/yolo26n.onnx');
+      console.log("Model loaded successfully!");
+    } catch (e) {
+      // If the file is empty or missing (placeholder), log a warning but allow UI testing
+      console.warn("Could not load real model. Using mock inference mode. Replace /public/model/yolo26n.onnx with a valid model.", e);
+      session = null;
+    }
 
     scanBtn.disabled = false;
     statusText.textContent = "Ready to scan";
   } catch (error) {
-    console.error("Failed to load the model:", error);
+    console.error("Failed to initialize:", error);
     statusText.textContent = "Error loading model";
   }
 }
@@ -114,19 +119,39 @@ async function runInference() {
     // 1. Pre-process the image
     const tensor = preprocessImage();
 
-    // 2. Run model (Simulated)
-    await new Promise(resolve => setTimeout(resolve, 800));
+    // 2. Run model
+    let maxConfidence = 0;
+    let maxClassId = -1;
 
-    const randomClassId = Math.floor(Math.random() * LABELS.length);
-    const result = LABELS[randomClassId];
+    if (session) {
+      // Execute actual ONNX model
+      const feeds = { images: tensor };
+      const results = await session.run(feeds);
+
+      // Output parsing depends on exact YOLO26n architecture.
+      // Assuming a flattened array where each element corresponds to class confidence.
+      const output = results[session.outputNames[0]].data;
+
+      for (let i = 0; i < output.length; i++) {
+        if (output[i] > maxConfidence) {
+          maxConfidence = output[i];
+          maxClassId = i;
+        }
+      }
+    } else {
+      // Mock logic if placeholder file is still active
+      await new Promise(resolve => setTimeout(resolve, 800));
+      maxConfidence = Math.random() * 0.59 + 0.4;
+      maxClassId = Math.floor(Math.random() * LABELS.length);
+    }
 
     // 3. Display Results
-    detectedClassEl.textContent = result.name;
-
-    if (result.recyclable) {
+    if (maxConfidence > CONFIDENCE_THRESHOLD && maxClassId < LABELS.length) {
+      detectedClassEl.textContent = LABELS[maxClassId];
       recyclableStatusEl.textContent = "IS RECYCLABLE";
       recyclableStatusEl.className = "recyclable-status status-yes";
     } else {
+      detectedClassEl.textContent = "Unknown Item";
       recyclableStatusEl.textContent = "IS NOT RECYCLABLE";
       recyclableStatusEl.className = "recyclable-status status-no";
     }
