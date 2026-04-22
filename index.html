@@ -591,18 +591,29 @@ async function runInference() {
     const tensor = new ort.Tensor('float32', float32Data, [1, 3, 640, 640]);
     const results = await session.run({ [session.inputNames[0]]: tensor });
     const output = results[session.outputNames[0]].data;
+    const dims = results[session.outputNames[0]].dims;
 
-    // YOLOv8 Output shape is [1, classes + 4, 8400]
-    // Let's find the absolute best detection across ALL possible classes
+    console.log("--- DEBUG INFO ---");
+    console.log("Model Output Shape:", dims); // This will tell us if it's [1, 10, 8400] or something else
+    
+    // EMERGENCY DEBUG: Find the absolute highest number in the entire array
+    let absoluteMax = -999;
+    for (let i = 0; i < output.length; i++) {
+        if (output[i] > absoluteMax) absoluteMax = output[i];
+    }
+    console.log("Absolute highest value in output:", absoluteMax);
+
+    // Standard YOLOv8 parsing
     let bestScore = 0;
     let bestClassId = -1;
     
-    // Determine how many classes the model actually has from the output buffer
-    const numClasses = (output.length / 8400) - 4; 
+    // We'll use the actual dimensions from the model
+    const rows = dims[1]; // usually 10 (4 boxes + 6 classes)
+    const cols = dims[2]; // usually 8400
 
-    for (let col = 0; col < 8400; col++) {
-      for (let c = 0; c < numClasses; c++) {
-        const score = output[(c + 4) * 8400 + col];
+    for (let col = 0; col < cols; col++) {
+      for (let c = 0; c < (rows - 4); c++) {
+        const score = output[(c + 4) * cols + col];
         if (score > bestScore) {
           bestScore = score;
           bestClassId = c;
@@ -610,7 +621,7 @@ async function runInference() {
       }
     }
 
-    console.log(`Best Detect: ID ${bestClassId} with score ${bestScore}`);
+    console.log(`Final Decision: ID ${bestClassId} with score ${bestScore}`);
     handleResult(bestClassId, bestScore);
 
   } catch (err) {
