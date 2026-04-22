@@ -1,334 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Eco-AI Scanner [AI under development]</title>
+  <link rel="icon" href="data:,">
+  <script>
+    window._ORT_WASM_CDN = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/';
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/ort.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:ital,wght@0,300;0,500;0,700;1,300&display=swap');
+    :root {
+      --primary: #39e09b;
+      --primary-dim: rgba(57, 224, 155, 0.18);
+      --danger: #ff6b6b;
+      --danger-dim: rgba(255, 107, 107, 0.15);
+      --bg: #08100e;
+      --surface: #111c18;
+      --surface2: #192821;
+      --border: rgba(57, 224, 155, 0.15);
+      --text: #d6efe6;
+      --text-muted: #5d8a74;
+      --mono: 'Space Mono', monospace;
+      --sans: 'DM Sans', sans-serif;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--sans);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)' opacity='0.025'/%3E%3C/svg%3E");
+    }
+    .navbar {
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(8,16,14,0.8);
+      backdrop-filter: blur(12px);
+      position: sticky; top: 0; z-index: 100;
+    }
+    .navbar-icon { width: 28px; height: 28px; background: var(--primary); border-radius: 6px; display: grid; place-items: center; font-size: 16px; }
+    .navbar h1 { font-family: var(--mono); font-size: 14px; font-weight: 700; color: var(--primary); letter-spacing: 2px; text-transform: uppercase; }
+    .navbar-badge { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--text-muted); border: 1px solid var(--border); border-radius: 20px; padding: 3px 9px; }
+    .main-content { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 20px 16px 40px; width: 100%; max-width: 480px; margin: 0 auto; }
+    #statusText { font-family: var(--mono); font-size: 11px; color: var(--text-muted); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 16px; text-align: center; min-height: 18px; transition: color 0.3s; }
+    #statusText.ready { color: var(--primary); }
+    #statusText.error { color: var(--danger); }
+    #scannerView, #resultView { width: 100%; display: flex; flex-direction: column; align-items: center; }
+    #resultView { display: none; }
+    .video-wrapper {
+      position: relative; width: 100%; aspect-ratio: 1 / 1;
+      border-radius: 20px; overflow: hidden; background: #000; margin-bottom: 24px;
+      box-shadow: 0 0 0 1px var(--border), 0 0 40px rgba(57,224,155,0.08), 0 20px 60px rgba(0,0,0,0.6);
+    }
+    .video-wrapper::after {
+      content: ''; position: absolute; inset: 0;
+      background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(57,224,155,0.015) 2px, rgba(57,224,155,0.015) 4px);
+      pointer-events: none; z-index: 2;
+    }
+    .corner { position: absolute; width: 22px; height: 22px; z-index: 5; }
+    .corner-tl { top: 12px; left: 12px; border-top: 2px solid var(--primary); border-left: 2px solid var(--primary); border-radius: 4px 0 0 0; }
+    .corner-tr { top: 12px; right: 12px; border-top: 2px solid var(--primary); border-right: 2px solid var(--primary); border-radius: 0 4px 0 0; }
+    .corner-bl { bottom: 12px; left: 12px; border-bottom: 2px solid var(--primary); border-left: 2px solid var(--primary); border-radius: 0 0 0 4px; }
+    .corner-br { bottom: 12px; right: 12px; border-bottom: 2px solid var(--primary); border-right: 2px solid var(--primary); border-radius: 0 0 4px 0; }
+    video { width: 100%; height: 100%; object-fit: cover; display: block; }
+    #loadingOverlay {
+      position: absolute; inset: 0; background: rgba(8,16,14,0.92);
+      display: flex; flex-direction: column; justify-content: center; align-items: center;
+      z-index: 10; text-align: center; padding: 24px; gap: 12px;
+    }
+    .spinner { width: 36px; height: 36px; border: 2px solid rgba(57,224,155,0.15); border-top-color: var(--primary); border-radius: 50%; animation: spin 0.9s linear infinite; }
+    #loadingTitle { font-family: var(--mono); font-size: 13px; color: var(--primary); letter-spacing: 1px; }
+    #loadingSubtext { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+    .progress-bar-wrap { width: 160px; height: 3px; background: rgba(57,224,155,0.1); border-radius: 10px; overflow: hidden; }
+    .progress-bar-fill { height: 100%; width: 0%; background: var(--primary); border-radius: 10px; transition: width 0.2s ease; }
+    .shutter-btn-container { display: flex; justify-content: center; align-items: center; margin-bottom: 16px; gap: 20px; }
+    .shutter-btn {
+      width: 72px; height: 72px; background: var(--primary);
+      border: 4px solid rgba(255,255,255,0.3); border-radius: 50%; cursor: pointer;
+      box-shadow: 0 0 0 6px rgba(57,224,155,0.12), 0 8px 24px rgba(57,224,155,0.25);
+      transition: transform 0.1s, box-shadow 0.2s, background 0.2s; position: relative;
+    }
+    .shutter-btn::after { content: ''; position: absolute; inset: 8px; border-radius: 50%; background: rgba(255,255,255,0.2); }
+    .shutter-btn:active { transform: scale(0.92); }
+    .shutter-btn:disabled { background: var(--surface2); border-color: var(--border); box-shadow: none; cursor: not-allowed; }
+    #backendBadge { font-family: var(--mono); font-size: 10px; color: var(--text-muted); border: 1px solid var(--border); border-radius: 20px; padding: 4px 10px; margin-bottom: 20px; display: none; }
+    #backendBadge.visible { display: inline-block; }
+    .live-toggle-btn {
+      font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 1px;
+      text-transform: uppercase; padding: 10px 20px; border-radius: 50px;
+      border: 1.5px solid var(--primary); background: transparent; color: var(--primary);
+      cursor: pointer; transition: background 0.2s, color 0.2s, box-shadow 0.2s;
+      margin-bottom: 24px; display: flex; align-items: center; gap: 8px;
+    }
+    .live-toggle-btn:hover { background: var(--primary-dim); }
+    .live-toggle-btn.live-active { background: var(--primary); color: var(--bg); box-shadow: 0 0 0 4px rgba(57,224,155,0.18); }
+    .live-toggle-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--primary); display: inline-block; flex-shrink: 0; }
+    .live-toggle-btn.live-active .live-dot { background: var(--bg); animation: pulse 1.2s ease-in-out infinite; }
+    #resultView { animation: fadeUp 0.35s ease; }
+    .result-card { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 36px 24px 28px; width: 100%; text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
+    .result-label { font-family: var(--mono); font-size: 10px; letter-spacing: 2px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 6px; }
+    .item-class { font-family: var(--mono); font-size: 26px; font-weight: 700; color: var(--primary); text-transform: uppercase; display: block; margin: 6px 0 22px; line-height: 1.1; }
+    .status-badge { padding: 16px 20px; border-radius: 14px; font-weight: 700; font-size: 20px; letter-spacing: 0.5px; }
+    .status-yes { background: var(--primary-dim); color: var(--primary); border: 1px solid rgba(57,224,155,0.3); }
+    .status-no { background: var(--danger-dim); color: var(--danger); border: 1px solid rgba(255,107,107,0.3); font-size: 14px; font-weight: 500; line-height: 1.5; }
+    .confidence-pill { display: inline-block; font-family: var(--mono); font-size: 11px; color: var(--text-muted); margin-top: 14px; }
+    .btn-secondary { background: var(--primary); color: var(--bg); border: none; padding: 14px 24px; font-family: var(--mono); font-size: 13px; font-weight: 700; letter-spacing: 1px; border-radius: 12px; cursor: pointer; margin-top: 28px; width: 100%; text-transform: uppercase; transition: opacity 0.15s; }
+    .btn-secondary:hover { opacity: 0.88; }
+    canvas { display: none; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+  </style>
+</head>
+<body>
 
-<style>
-  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:ital,wght@0,300;0,500;0,700;1,300&display=swap');
-  :root{--primary:#39e09b;--primary-dim:rgba(57,224,155,0.18);--danger:#ff6b6b;--danger-dim:rgba(255,107,107,0.15);--bg:#08100e;--surface:#111c18;--surface2:#192821;--border:rgba(57,224,155,0.15);--text:#d6efe6;--text-muted:#5d8a74;--mono:'Space Mono',monospace;--sans:'DM Sans',sans-serif}
-  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100dvh;display:flex;flex-direction:column}
-  .navbar{padding:14px 20px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border);background:rgba(8,16,14,0.8);backdrop-filter:blur(12px);position:sticky;top:0;z-index:100}
-  .navbar-icon{width:28px;height:28px;background:var(--primary);border-radius:6px;display:grid;place-items:center;font-size:16px}
-  .navbar h1{font-family:var(--mono);font-size:14px;font-weight:700;color:var(--primary);letter-spacing:2px;text-transform:uppercase}
-  .navbar-badge{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text-muted);border:1px solid var(--border);border-radius:20px;padding:3px 9px}
-  .main-content{flex:1;display:flex;flex-direction:column;align-items:center;padding:20px 16px 40px;width:100%;max-width:480px;margin:0 auto}
-  #statusText{font-family:var(--mono);font-size:11px;color:var(--text-muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:16px;text-align:center;min-height:18px;transition:color 0.3s}
-  #statusText.ready{color:var(--primary)}
-  #statusText.error{color:var(--danger)}
-  #scannerView,#resultView{width:100%;display:flex;flex-direction:column;align-items:center}
-  #resultView{display:none}
-  .video-wrapper{position:relative;width:100%;aspect-ratio:1/1;border-radius:20px;overflow:hidden;background:#000;margin-bottom:24px;box-shadow:0 0 0 1px var(--border),0 0 40px rgba(57,224,155,0.08),0 20px 60px rgba(0,0,0,0.6)}
-  .video-wrapper::after{content:'';position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(57,224,155,0.015) 2px,rgba(57,224,155,0.015) 4px);pointer-events:none;z-index:2}
-  .corner{position:absolute;width:22px;height:22px;z-index:5}
-  .corner-tl{top:12px;left:12px;border-top:2px solid var(--primary);border-left:2px solid var(--primary);border-radius:4px 0 0 0}
-  .corner-tr{top:12px;right:12px;border-top:2px solid var(--primary);border-right:2px solid var(--primary);border-radius:0 4px 0 0}
-  .corner-bl{bottom:12px;left:12px;border-bottom:2px solid var(--primary);border-left:2px solid var(--primary);border-radius:0 0 0 4px}
-  .corner-br{bottom:12px;right:12px;border-bottom:2px solid var(--primary);border-right:2px solid var(--primary);border-radius:0 0 4px 0}
-  video{width:100%;height:100%;object-fit:cover;display:block}
-  #loadingOverlay{position:absolute;inset:0;background:rgba(8,16,14,0.92);display:flex;flex-direction:column;justify-content:center;align-items:center;z-index:10;text-align:center;padding:24px;gap:12px}
-  .spinner{width:36px;height:36px;border:2px solid rgba(57,224,155,0.15);border-top-color:var(--primary);border-radius:50%;animation:spin 0.9s linear infinite}
-  #loadingTitle{font-family:var(--mono);font-size:13px;color:var(--primary);letter-spacing:1px}
-  #loadingSubtext{font-size:12px;color:var(--text-muted);line-height:1.5}
-  .progress-bar-wrap{width:160px;height:3px;background:rgba(57,224,155,0.1);border-radius:10px;overflow:hidden}
-  .progress-bar-fill{height:100%;width:0%;background:var(--primary);border-radius:10px;transition:width 0.2s ease}
-  .shutter-btn-container{display:flex;justify-content:center;align-items:center;margin-bottom:16px;gap:20px}
-  .shutter-btn{width:72px;height:72px;background:var(--primary);border:4px solid rgba(255,255,255,0.3);border-radius:50%;cursor:pointer;box-shadow:0 0 0 6px rgba(57,224,155,0.12),0 8px 24px rgba(57,224,155,0.25);transition:transform 0.1s,box-shadow 0.2s,background 0.2s;position:relative}
-  .shutter-btn::after{content:'';position:absolute;inset:8px;border-radius:50%;background:rgba(255,255,255,0.2)}
-  .shutter-btn:active{transform:scale(0.92)}
-  .shutter-btn:disabled{background:var(--surface2);border-color:var(--border);box-shadow:none;cursor:not-allowed}
-  #backendBadge{font-family:var(--mono);font-size:10px;color:var(--text-muted);border:1px solid var(--border);border-radius:20px;padding:4px 10px;margin-bottom:20px;display:none}
-  #backendBadge.visible{display:inline-block}
-  .live-toggle-btn{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;padding:10px 20px;border-radius:50px;border:1.5px solid var(--primary);background:transparent;color:var(--primary);cursor:pointer;transition:background 0.2s,color 0.2s,box-shadow 0.2s;margin-bottom:24px;display:flex;align-items:center;gap:8px}
-  .live-toggle-btn:hover{background:var(--primary-dim)}
-  .live-toggle-btn.live-active{background:var(--primary);color:var(--bg);box-shadow:0 0 0 4px rgba(57,224,155,0.18)}
-  .live-toggle-btn:disabled{opacity:0.4;cursor:not-allowed}
-  .live-dot{width:8px;height:8px;border-radius:50%;background:var(--primary);display:inline-block;flex-shrink:0}
-  .live-toggle-btn.live-active .live-dot{background:var(--bg);animation:pulse 1.2s ease-in-out infinite}
-  #resultView{animation:fadeUp 0.35s ease}
-  .result-card{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:36px 24px 28px;width:100%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.5)}
-  .result-label{font-family:var(--mono);font-size:10px;letter-spacing:2px;color:var(--text-muted);text-transform:uppercase;margin-bottom:6px}
-  .item-class{font-family:var(--mono);font-size:26px;font-weight:700;color:var(--primary);text-transform:uppercase;display:block;margin:6px 0 22px;line-height:1.1}
-  .status-badge{padding:16px 20px;border-radius:14px;font-weight:700;font-size:20px;letter-spacing:0.5px}
-  .status-yes{background:var(--primary-dim);color:var(--primary);border:1px solid rgba(57,224,155,0.3)}
-  .status-no{background:var(--danger-dim);color:var(--danger);border:1px solid rgba(255,107,107,0.3);font-size:14px;font-weight:500;line-height:1.5}
-  .confidence-pill{display:inline-block;font-family:var(--mono);font-size:11px;color:var(--text-muted);margin-top:14px}
-  .btn-secondary{background:var(--primary);color:var(--bg);border:none;padding:14px 24px;font-family:var(--mono);font-size:13px;font-weight:700;letter-spacing:1px;border-radius:12px;cursor:pointer;margin-top:28px;width:100%;text-transform:uppercase;transition:opacity 0.15s}
-  .btn-secondary:hover{opacity:0.88}
-  canvas{display:none}
-  @keyframes spin{to{transform:rotate(360deg)}}
-  @keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
-  @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
-</style>
+  <nav class="navbar">
+    <div class="navbar-icon">🌿</div>
+    <h1>Eco-AI Scanner</h1>
+    <span class="navbar-badge">IB CAS</span>
+  </nav>
 
-<nav class="navbar">
-  <div class="navbar-icon">🌿</div>
-  <h1>Eco-AI Scanner</h1>
-  <span class="navbar-badge">IB CAS</span>
-</nav>
+  <main class="main-content">
+    <div id="statusText">Initializing system...</div>
 
-<main class="main-content">
-  <div id="statusText">Initializing system...</div>
-
-  <div id="scannerView">
-    <div class="video-wrapper">
-      <div class="corner corner-tl"></div>
-      <div class="corner corner-tr"></div>
-      <div class="corner corner-bl"></div>
-      <div class="corner corner-br"></div>
-      <video id="cameraFeed" autoplay playsinline muted></video>
-      <div id="loadingOverlay">
-        <div class="spinner" id="spinner"></div>
-        <div id="loadingTitle">Requesting Camera…</div>
-        <div id="loadingSubtext">Please tap Allow if prompted.</div>
-        <div class="progress-bar-wrap" id="progressWrap" style="display:none">
-          <div class="progress-bar-fill" id="progressFill"></div>
+    <div id="scannerView">
+      <div class="video-wrapper">
+        <div class="corner corner-tl"></div>
+        <div class="corner corner-tr"></div>
+        <div class="corner corner-bl"></div>
+        <div class="corner corner-br"></div>
+        <video id="cameraFeed" autoplay playsinline muted></video>
+        <div id="loadingOverlay">
+          <div class="spinner" id="spinner"></div>
+          <div id="loadingTitle">Requesting Camera…</div>
+          <div id="loadingSubtext">Please tap Allow if prompted.</div>
+          <div class="progress-bar-wrap" id="progressWrap" style="display:none">
+            <div class="progress-bar-fill" id="progressFill"></div>
+          </div>
         </div>
+      </div>
+
+      <div id="backendBadge"></div>
+
+      <div class="shutter-btn-container">
+        <button id="scanBtn" class="shutter-btn" disabled aria-label="Scan object"></button>
+      </div>
+
+      <button id="liveToggleBtn" class="live-toggle-btn" disabled>
+        <span class="live-dot"></span>
+        <span id="liveToggleLabel">Start Live Scan</span>
+      </button>
+    </div>
+
+    <div id="resultView">
+      <div class="result-card">
+        <div id="resultContent"></div>
+        <button id="resetBtn" class="btn-secondary">↩ Scan Another Item</button>
       </div>
     </div>
 
-    <div id="backendBadge"></div>
-
-    <div class="shutter-btn-container">
-      <button id="scanBtn" class="shutter-btn" disabled aria-label="Scan object"></button>
-    </div>
-
-    <button id="liveToggleBtn" class="live-toggle-btn" disabled>
-      <span class="live-dot"></span>
-      <span id="liveToggleLabel">Start Live Scan</span>
-    </button>
-  </div>
-
-  <div id="resultView">
-    <div class="result-card">
-      <div id="resultContent"></div>
-      <button id="resetBtn" class="btn-secondary">↩ Scan Another Item</button>
-    </div>
-  </div>
-
-  <canvas id="processingCanvas" width="640" height="640"></canvas>
-</main>
+    <canvas id="processingCanvas" width="640" height="640"></canvas>
+  </main>
 
 <script>
-const ORT_CDN='https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/';
-if(typeof ort!=='undefined'){ort.env.wasm.wasmPaths=ORT_CDN;}
-const supportsThreads=typeof SharedArrayBuffer!=='undefined';
-if(typeof ort!=='undefined'){ort.env.wasm.numThreads=supportsThreads?Math.min(4,navigator.hardwareConcurrency||2):1;}
-const BACKEND_PRIORITY=['webgpu','webgl','wasm'];
-const RECYCLABLE_CLASSES = ["Beverage Can", "Glass Bottle", "Plastic Bottle", "Paper", "Plastic Film", "Carton"];
-const MODEL_PATH='best.onnx';
-const CONFIDENCE_THRESHOLD=0.20;
-const LIVE_INTERVAL_MS=1200;
+const ORT_CDN = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/';
+ort.env.wasm.wasmPaths = ORT_CDN;
 
-let video,scanBtn,statusText,loadingOverlay,loadingTitle,loadingSubtext,progressWrap,progressFill,scannerView,resultView,resultContent,resetBtn,canvas,ctx,backendBadge,liveToggleBtn,liveToggleLabel;
+const supportsThreads = typeof SharedArrayBuffer !== 'undefined';
+ort.env.wasm.numThreads = supportsThreads ? Math.min(4, navigator.hardwareConcurrency || 2) : 1;
+
+const BACKEND_PRIORITY = ['webgpu', 'webgl', 'wasm'];
+
+// ── UPDATED CLASS NAMES ──
+const RECYCLABLE_CLASSES = ['Beverage Can', 'Glass Bottle', 'Plastic Bottle', 'Paper', 'Plastic Film', 'Carton'];
+
+const MODEL_PATH = 'best.onnx';
+const CONFIDENCE_THRESHOLD = 0.20;
+const LIVE_INTERVAL_MS = 1200;
+
+let video, scanBtn, statusText, loadingOverlay, loadingTitle,
+    loadingSubtext, progressWrap, progressFill,
+    scannerView, resultView, resultContent, resetBtn,
+    canvas, ctx, backendBadge, liveToggleBtn, liveToggleLabel;
 let session;
-let isLive=false;
-let liveTimer=null;
+let isLive = false;
+let liveTimer = null;
 
-async function initApp(){
-  video=document.getElementById('cameraFeed');
-  scanBtn=document.getElementById('scanBtn');
-  statusText=document.getElementById('statusText');
-  loadingOverlay=document.getElementById('loadingOverlay');
-  loadingTitle=document.getElementById('loadingTitle');
-  loadingSubtext=document.getElementById('loadingSubtext');
-  progressWrap=document.getElementById('progressWrap');
-  progressFill=document.getElementById('progressFill');
-  scannerView=document.getElementById('scannerView');
-  resultView=document.getElementById('resultView');
-  resultContent=document.getElementById('resultContent');
-  resetBtn=document.getElementById('resetBtn');
-  canvas=document.getElementById('processingCanvas');
-  backendBadge=document.getElementById('backendBadge');
-  liveToggleBtn=document.getElementById('liveToggleBtn');
-  liveToggleLabel=document.getElementById('liveToggleLabel');
-  ctx=canvas.getContext('2d',{willReadFrequently:true});
+async function initApp() {
+  video         = document.getElementById('cameraFeed');
+  scanBtn       = document.getElementById('scanBtn');
+  statusText    = document.getElementById('statusText');
+  loadingOverlay= document.getElementById('loadingOverlay');
+  loadingTitle  = document.getElementById('loadingTitle');
+  loadingSubtext= document.getElementById('loadingSubtext');
+  progressWrap  = document.getElementById('progressWrap');
+  progressFill  = document.getElementById('progressFill');
+  scannerView   = document.getElementById('scannerView');
+  resultView    = document.getElementById('resultView');
+  resultContent = document.getElementById('resultContent');
+  resetBtn      = document.getElementById('resetBtn');
+  canvas        = document.getElementById('processingCanvas');
+  backendBadge  = document.getElementById('backendBadge');
+  liveToggleBtn = document.getElementById('liveToggleBtn');
+  liveToggleLabel = document.getElementById('liveToggleLabel');
+  ctx = canvas.getContext('2d', { willReadFrequently: true });
 
-  scanBtn.addEventListener('click',runInference);
-  resetBtn.addEventListener('click',resetScanner);
-  liveToggleBtn.addEventListener('click',toggleLive);
+  scanBtn.addEventListener('click', runInference);
+  resetBtn.addEventListener('click', resetScanner);
+  liveToggleBtn.addEventListener('click', toggleLive);
 
-  try{
-    setLoading('Requesting Camera…','Tap Allow if your browser asks.');
-    const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:1280}}});
-    video.srcObject=stream;
+  // ── 1. CAMERA ──
+  try {
+    setLoading('Requesting Camera…', 'Tap Allow if your browser asks.');
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 1280 } }
+    });
+    video.srcObject = stream;
     await video.play();
-  }catch(err){
-    showError('Camera Access Denied',"Open your browser's site settings, allow camera, then refresh.");
+  } catch (err) {
+    showError('Camera Access Denied', "Open your browser's site settings, allow camera, then refresh.");
     return;
   }
 
-  try{
-    setLoading('Downloading Model…','Hang tight — first load only.');
-    progressWrap.style.display='block';
-    statusText.textContent='Loading '+MODEL_PATH+'…';
-    const modelBuffer=await downloadWithProgress(MODEL_PATH,(pct)=>{progressFill.style.width=pct+'%';});
-    setLoading('Starting AI Engine…','Choosing fastest available backend…');
-    progressWrap.style.display='none';
-    session=await createSessionWithFallback(modelBuffer);
-  }catch(err){
-    showError('Model Load Failed',err.message);
+  // ── 2. MODEL DOWNLOAD ──
+  try {
+    setLoading('Downloading Model…', 'Hang tight — first load only.');
+    progressWrap.style.display = 'block';
+    statusText.textContent = `Loading ${MODEL_PATH}…`;
+    const modelBuffer = await downloadWithProgress(MODEL_PATH, (pct) => { progressFill.style.width = pct + '%'; });
+
+    setLoading('Starting AI Engine…', 'Choosing fastest available backend…');
+    progressWrap.style.display = 'none';
+    session = await createSessionWithFallback(modelBuffer);
+  } catch (err) {
+    showError('Model Load Failed', err.message);
     return;
   }
 
-  loadingOverlay.style.display='none';
-  scanBtn.disabled=false;
-  liveToggleBtn.disabled=false;
-  statusText.textContent='Ready to scan.';
-  statusText.className='ready';
+  loadingOverlay.style.display = 'none';
+  scanBtn.disabled = false;
+  liveToggleBtn.disabled = false;
+  statusText.textContent = 'Ready to scan.';
+  statusText.className = 'ready';
 }
 
-function toggleLive(){
-  if(!isLive){
-    isLive=true;
+// ── LIVE SCAN TOGGLE ──
+function toggleLive() {
+  if (!isLive) {
+    isLive = true;
     liveToggleBtn.classList.add('live-active');
-    liveToggleLabel.textContent='Stop Live Scan';
-    scanBtn.disabled=true;
-    statusText.textContent='Live scanning active…';
-    statusText.className='ready';
-    liveTimer=setInterval(()=>{
-      if(session&&isLive)runInferenceLive();
-    },LIVE_INTERVAL_MS);
-  }else{
+    liveToggleLabel.textContent = 'Stop Live Scan';
+    scanBtn.disabled = true;
+    statusText.textContent = 'Live scanning active…';
+    statusText.className = 'ready';
+    liveTimer = setInterval(() => { if (session && isLive) runInferenceLive(); }, LIVE_INTERVAL_MS);
+  } else {
     stopLive();
   }
 }
 
-function stopLive(){
-  isLive=false;
+function stopLive() {
+  isLive = false;
   clearInterval(liveTimer);
-  liveTimer=null;
+  liveTimer = null;
   liveToggleBtn.classList.remove('live-active');
-  liveToggleLabel.textContent='Start Live Scan';
-  scanBtn.disabled=false;
-  statusText.textContent='Ready to scan.';
-  statusText.className='ready';
+  liveToggleLabel.textContent = 'Start Live Scan';
+  scanBtn.disabled = false;
+  statusText.textContent = 'Ready to scan.';
+  statusText.className = 'ready';
 }
 
-async function runInferenceLive(){
-  if(!session||!isLive)return;
-  try{
-    ctx.drawImage(video,0,0,640,640);
-    const imageData=ctx.getImageData(0,0,640,640).data;
-    const float32Data=new Float32Array(3*640*640);
-    const px=640*640;
-    for(let i=0;i<px;i++){
-      float32Data[i]=imageData[i*4]/255.0;
-      float32Data[px+i]=imageData[i*4+1]/255.0;
-      float32Data[2*px+i]=imageData[i*4+2]/255.0;
+async function runInferenceLive() {
+  if (!session || !isLive) return;
+  try {
+    const tensor = buildTensor();
+    const results = await session.run({ [session.inputNames[0]]: tensor });
+    const { bestScore, bestClassId } = parseOutput(results[session.outputNames[0]].data);
+    if (bestScore >= CONFIDENCE_THRESHOLD && bestClassId !== -1) {
+      statusText.textContent = `Live: ${RECYCLABLE_CLASSES[bestClassId]} — ${(bestScore * 100).toFixed(0)}% confident`;
+    } else {
+      statusText.textContent = 'Live scanning active…';
     }
-    const tensor=new ort.Tensor('float32',float32Data,[1,3,640,640]);
-    const results=await session.run({[session.inputNames[0]]:tensor});
-    const output=results[session.outputNames[0]].data;
-    let bestScore=0,bestClassId=-1;
-    for(let i=0;i<300;i++){
-      const offset=i*6;
-      const score=output[offset+4];
-      const classId=Math.round(output[offset+5]);
-      if(score>bestScore){bestScore=score;bestClassId=classId;}
-    }
-    if(bestScore>=CONFIDENCE_THRESHOLD&&bestClassId!==-1){
-      statusText.textContent='Live: '+RECYCLABLE_CLASSES[bestClassId]+' — '+(bestScore*100).toFixed(0)+'% confident';
-    }else{
-      statusText.textContent='Live scanning active…';
-    }
-  }catch(e){console.warn('Live scan error:',e);}
+  } catch (e) { console.warn('Live scan error:', e); }
 }
 
-function downloadWithProgress(url,onProgress){
-  return new Promise((resolve,reject)=>{
-    const xhr=new XMLHttpRequest();
-    xhr.open('GET',url,true);
-    xhr.responseType='arraybuffer';
-    xhr.onprogress=(e)=>{if(e.lengthComputable)onProgress(Math.round((e.loaded/e.total)*100));};
-    xhr.onload=()=>{
-      if(xhr.status>=200&&xhr.status<300){onProgress(100);resolve(xhr.response);}
-      else reject(new Error('HTTP '+xhr.status+' — make sure best.onnx is in the same folder as index.html'));
+// ── SINGLE SCAN ──
+async function runInference() {
+  if (!session || scanBtn.disabled || isLive) return;
+  scanBtn.disabled = true;
+  statusText.textContent = 'Analyzing…';
+  try {
+    const tensor = buildTensor();
+    const results = await session.run({ [session.inputNames[0]]: tensor });
+    const { bestScore, bestClassId } = parseOutput(results[session.outputNames[0]].data);
+    handleResult(bestClassId, bestScore);
+  } catch (err) {
+    console.error('Inference error:', err);
+    statusText.textContent = 'Scan error — see console.';
+    scanBtn.disabled = false;
+  }
+}
+
+// ── SHARED HELPERS ──
+function buildTensor() {
+  ctx.drawImage(video, 0, 0, 640, 640);
+  const imageData = ctx.getImageData(0, 0, 640, 640).data;
+  const float32Data = new Float32Array(3 * 640 * 640);
+  const px = 640 * 640;
+  for (let i = 0; i < px; i++) {
+    float32Data[i]        = imageData[i * 4]     / 255.0;
+    float32Data[px + i]   = imageData[i * 4 + 1] / 255.0;
+    float32Data[2*px + i] = imageData[i * 4 + 2] / 255.0;
+  }
+  return new ort.Tensor('float32', float32Data, [1, 3, 640, 640]);
+}
+
+function parseOutput(output) {
+  let bestScore = 0, bestClassId = -1;
+  for (let i = 0; i < 300; i++) {
+    const offset = i * 6;
+    const score = output[offset + 4];
+    const classId = Math.round(output[offset + 5]);
+    if (score > bestScore) { bestScore = score; bestClassId = classId; }
+  }
+  return { bestScore, bestClassId };
+}
+
+function downloadWithProgress(url, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('GET', url, true);
+    xhr.responseType = 'arraybuffer';
+    xhr.onprogress = (e) => { if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100)); };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) { onProgress(100); resolve(xhr.response); }
+      else reject(new Error(`HTTP ${xhr.status} — make sure best.onnx is in the same folder as index.html`));
     };
-    xhr.onerror=()=>reject(new Error('Network error fetching model.'));
+    xhr.onerror = () => reject(new Error('Network error fetching model.'));
     xhr.send();
   });
 }
 
-async function createSessionWithFallback(modelBuffer){
+async function createSessionWithFallback(modelBuffer) {
   let lastError;
-  for(const backend of BACKEND_PRIORITY){
-    try{
-      setLoading('Starting AI Engine…','Trying '+backend.toUpperCase()+' backend…');
-      const opts={executionProviders:[backend],graphOptimizationLevel:backend==='wasm'?'all':'basic'};
-      if(backend==='wasm')opts.executionProviders=[{name:'wasm',numThreads:supportsThreads?Math.min(4,navigator.hardwareConcurrency||2):1}];
-      const s=await ort.InferenceSession.create(modelBuffer,opts);
-      backendBadge.textContent='⚡ '+backend.toUpperCase()+' backend';
+  for (const backend of BACKEND_PRIORITY) {
+    try {
+      setLoading('Starting AI Engine…', `Trying ${backend.toUpperCase()} backend…`);
+      const opts = {
+        executionProviders: [backend],
+        graphOptimizationLevel: backend === 'wasm' ? 'all' : 'basic',
+      };
+      if (backend === 'wasm') {
+        opts.executionProviders = [{ name: 'wasm', numThreads: supportsThreads ? Math.min(4, navigator.hardwareConcurrency || 2) : 1 }];
+      }
+      const s = await ort.InferenceSession.create(modelBuffer, opts);
+      backendBadge.textContent = `⚡ ${backend.toUpperCase()} backend`;
       backendBadge.classList.add('visible');
       return s;
-    }catch(err){lastError=err;}
+    } catch (err) { console.warn(`Backend "${backend}" failed:`, err.message); lastError = err; }
   }
-  throw new Error('All backends failed. Last error: '+lastError?.message);
+  throw new Error(`All backends failed. Last error: ${lastError?.message}`);
 }
 
-async function runInference(){
-  if(!session||scanBtn.disabled)return;
-  if(isLive)return;
-  scanBtn.disabled=true;
-  statusText.textContent='Analyzing…';
-  try{
-    ctx.drawImage(video,0,0,640,640);
-    const imageData=ctx.getImageData(0,0,640,640).data;
-    const float32Data=new Float32Array(3*640*640);
-    const px=640*640;
-    for(let i=0;i<px;i++){
-      float32Data[i]=imageData[i*4]/255.0;
-      float32Data[px+i]=imageData[i*4+1]/255.0;
-      float32Data[2*px+i]=imageData[i*4+2]/255.0;
-    }
-    const tensor=new ort.Tensor('float32',float32Data,[1,3,640,640]);
-    const results=await session.run({[session.inputNames[0]]:tensor});
-    const output=results[session.outputNames[0]].data;
-    let bestScore=0,bestClassId=-1;
-    for(let i=0;i<300;i++){
-      const offset=i*6;
-      const score=output[offset+4];
-      const classId=Math.round(output[offset+5]);
-      if(score>bestScore){bestScore=score;bestClassId=classId;}
-    }
-    handleResult(bestClassId,bestScore);
-  }catch(err){
-    statusText.textContent='Scan error — see console.';
-    scanBtn.disabled=false;
+function handleResult(classId, score) {
+  scannerView.style.display = 'none';
+  resultView.style.display = 'flex';
+  statusText.textContent = 'Analysis Complete';
+  statusText.className = 'ready';
+  if (score >= CONFIDENCE_THRESHOLD && classId !== -1) {
+    resultContent.innerHTML = `
+      <div class="result-label">Detected Item</div>
+      <span class="item-class">${RECYCLABLE_CLASSES[classId]}</span>
+      <div style="font-size:15px;color:var(--text-muted);margin-bottom:14px;">This item is classified as</div>
+      <div class="status-badge status-yes">✅ RECYCLABLE</div>
+      <div class="confidence-pill">AI confidence: ${(score * 100).toFixed(1)}%</div>
+    `;
+  } else {
+    resultContent.innerHTML = `
+      <div style="font-size:52px;margin-bottom:14px">🤔</div>
+      <div class="status-badge status-no">No match found in our database.<br>This item may not be recyclable — check locally.</div>
+    `;
   }
 }
 
-function handleResult(classId,score){
-  scannerView.style.display='none';
-  resultView.style.display='flex';
-  statusText.textContent='Analysis Complete';
-  statusText.className='ready';
-  if(score>=CONFIDENCE_THRESHOLD&&classId!==-1){
-    resultContent.innerHTML='<div class="result-label">Detected Item</div><span class="item-class">'+RECYCLABLE_CLASSES[classId]+'</span><div style="font-size:15px;color:var(--text-muted);margin-bottom:14px;">This item is classified as</div><div class="status-badge status-yes">✅ RECYCLABLE</div><div class="confidence-pill">AI confidence: '+(score*100).toFixed(1)+'%</div>';
-  }else{
-    resultContent.innerHTML='<div style="font-size:52px;margin-bottom:14px">🤔</div><div class="status-badge status-no">No match found in our database.<br>This item may not be recyclable — check locally.</div>';
-  }
+function resetScanner() {
+  if (isLive) stopLive();
+  resultView.style.display = 'none';
+  scannerView.style.display = 'flex';
+  scanBtn.disabled = false;
+  statusText.textContent = 'Ready to scan.';
+  statusText.className = 'ready';
 }
 
-function resetScanner(){
-  if(isLive)stopLive();
-  resultView.style.display='none';
-  scannerView.style.display='flex';
-  scanBtn.disabled=false;
-  statusText.textContent='Ready to scan.';
-  statusText.className='ready';
+function setLoading(title, sub) { loadingTitle.textContent = title; loadingSubtext.textContent = sub; }
+
+function showError(title, detail) {
+  document.getElementById('spinner').style.display = 'none';
+  progressWrap.style.display = 'none';
+  loadingTitle.style.color = 'var(--danger)';
+  loadingTitle.textContent = title;
+  loadingSubtext.innerHTML = detail;
+  statusText.textContent = 'Error — see details above.';
+  statusText.className = 'error';
 }
 
-function setLoading(title,sub){
-  loadingTitle.textContent=title;
-  loadingSubtext.textContent=sub;
-}
-
-function showError(title,detail){
-  document.getElementById('spinner').style.display='none';
-  progressWrap.style.display='none';
-  loadingTitle.style.color='var(--danger)';
-  loadingTitle.textContent=title;
-  loadingSubtext.innerHTML=detail;
-  statusText.textContent='Error — see details above.';
-  statusText.className='error';
-}
-
-window.addEventListener('DOMContentLoaded',initApp);
+window.addEventListener('DOMContentLoaded', initApp);
 </script>
+</body>
+</html>
