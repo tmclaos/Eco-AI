@@ -591,37 +591,24 @@ async function runInference() {
     const tensor = new ort.Tensor('float32', float32Data, [1, 3, 640, 640]);
     const results = await session.run({ [session.inputNames[0]]: tensor });
     const output = results[session.outputNames[0]].data;
-    const dims = results[session.outputNames[0]].dims;
 
-    console.log("--- DEBUG INFO ---");
-    console.log("Model Output Shape:", dims); // This will tell us if it's [1, 10, 8400] or something else
-    
-    // EMERGENCY DEBUG: Find the absolute highest number in the entire array
-    let absoluteMax = -999;
-    for (let i = 0; i < output.length; i++) {
-        if (output[i] > absoluteMax) absoluteMax = output[i];
-    }
-    console.log("Absolute highest value in output:", absoluteMax);
-
-    // Standard YOLOv8 parsing
+    // --- NEW LOGIC FOR [1, 300, 6] SHAPE ---
     let bestScore = 0;
     let bestClassId = -1;
-    
-    // We'll use the actual dimensions from the model
-    const rows = dims[1]; // usually 10 (4 boxes + 6 classes)
-    const cols = dims[2]; // usually 8400
 
-    for (let col = 0; col < cols; col++) {
-      for (let c = 0; c < (rows - 4); c++) {
-        const score = output[(c + 4) * cols + col];
-        if (score > bestScore) {
-          bestScore = score;
-          bestClassId = c;
-        }
+    // We loop through 300 potential detections
+    for (let i = 0; i < 300; i++) {
+      const offset = i * 6;
+      const score = output[offset + 4]; // The 5th value is the confidence
+      const classId = Math.round(output[offset + 5]); // The 6th value is the class ID
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestClassId = classId;
       }
     }
 
-    console.log(`Final Decision: ID ${bestClassId} with score ${bestScore}`);
+    console.log(`Real Best Detect: ID ${bestClassId} with confidence ${bestScore.toFixed(3)}`);
     handleResult(bestClassId, bestScore);
 
   } catch (err) {
@@ -630,7 +617,6 @@ async function runInference() {
     scanBtn.disabled = false;
   }
 }
-
 // ─────────────────────────────────────────────────────────────
 // RESULT
 // ─────────────────────────────────────────────────────────────
