@@ -111,7 +111,7 @@ if(typeof ort!=='undefined'){ort.env.wasm.wasmPaths=ORT_CDN;}
 const supportsThreads=typeof SharedArrayBuffer!=='undefined';
 if(typeof ort!=='undefined'){ort.env.wasm.numThreads=supportsThreads?Math.min(4,navigator.hardwareConcurrency||2):1;}
 const BACKEND_PRIORITY=['webgpu','webgl','wasm'];
-const RECYCLABLE_CLASSES=["plastic bottle","cardboard box","soda can","glass jar","paper","metal lid"];
+const RECYCLABLE_CLASSES = ["Beverage Can", "Glass Bottle", "Plastic Bottle", "Paper", "Plastic Film", "Carton"];
 const MODEL_PATH='best.onnx';
 const CONFIDENCE_THRESHOLD=0.20;
 const LIVE_INTERVAL_MS=1200;
