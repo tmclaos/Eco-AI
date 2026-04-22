@@ -575,13 +575,11 @@ async function runInference() {
   if (!session || scanBtn.disabled) return;
   scanBtn.disabled = true;
   statusText.textContent = 'Analyzing…';
-  statusText.className = '';
 
   try {
     ctx.drawImage(video, 0, 0, 640, 640);
     const imageData = ctx.getImageData(0, 0, 640, 640).data;
 
-    // NCHW float32 layout (1, 3, 640, 640)
     const float32Data = new Float32Array(3 * 640 * 640);
     const px = 640 * 640;
     for (let i = 0; i < px; i++) {
@@ -594,10 +592,16 @@ async function runInference() {
     const results = await session.run({ [session.inputNames[0]]: tensor });
     const output = results[session.outputNames[0]].data;
 
-    // YOLOv8 output: [1, (4+classes), 8400]
-    let bestScore = 0, bestClassId = -1;
+    // YOLOv8 Output shape is [1, classes + 4, 8400]
+    // Let's find the absolute best detection across ALL possible classes
+    let bestScore = 0;
+    let bestClassId = -1;
+    
+    // Determine how many classes the model actually has from the output buffer
+    const numClasses = (output.length / 8400) - 4; 
+
     for (let col = 0; col < 8400; col++) {
-      for (let c = 0; c < RECYCLABLE_CLASSES.length; c++) {
+      for (let c = 0; c < numClasses; c++) {
         const score = output[(c + 4) * 8400 + col];
         if (score > bestScore) {
           bestScore = score;
@@ -606,12 +610,12 @@ async function runInference() {
       }
     }
 
+    console.log(`Best Detect: ID ${bestClassId} with score ${bestScore}`);
     handleResult(bestClassId, bestScore);
 
   } catch (err) {
     console.error('Inference error:', err);
     statusText.textContent = 'Scan error — see console.';
-    statusText.className = 'error';
     scanBtn.disabled = false;
   }
 }
