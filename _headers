@@ -1,3 +1,7 @@
-/*
-  Cross-Origin-Opener-Policy: same-origin
-  Cross-Origin-Embedder-Policy: require-corp
+/*.onnx
+  Content-Type: application/octet-stream
+  Access-Control-Allow-Origin: *
+
+/*.wasm
+  Content-Type: application/wasm
+  Access-Control-Allow-Origin: *
